@@ -2,17 +2,16 @@ import express from "express";
 import http from "http";
 import cors from "cors";
 import dotenv from "dotenv";
+import "./config/db.js";
 
 dotenv.config();
 
 const app = express();
 const server = http.createServer(app);
 
-// Middleware
 app.use(cors({ origin: process.env.CLIENT_URL }));
 app.use(express.json());
 
-// Test route
 app.get("/", (req, res) => {
   res.json({ message: "🚀 Chat App Server çalışıyor!" });
 });
