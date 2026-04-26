@@ -4,17 +4,22 @@ import cors from "cors";
 import dotenv from "dotenv";
 import "./config/db.js";
 import authRoutes from "./routes/auth.js";
+import initSocket from "./socket/index.js";
+import roomRoutes from "./routes/room.js";
 
 dotenv.config();
 
 const app = express();
 const server = http.createServer(app);
 
+// Socket.io başlat
+initSocket(server);
+
 app.use(cors({ origin: process.env.CLIENT_URL }));
 app.use(express.json());
 
-// Routes
 app.use("/api/auth", authRoutes);
+app.use("/api/rooms", roomRoutes);
 
 app.get("/", (req, res) => {
   res.json({ message: "🚀 Chat App Server çalışıyor!" });
