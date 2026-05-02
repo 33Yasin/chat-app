@@ -6,39 +6,43 @@ import api from "../services/api.js";
 const ChatPage = () => {
   const { user, logout } = useAuth();
   const token = localStorage.getItem("token");
-  // Socket bağlantısını başlat
   const socket = useSocket(token);
 
-  // Uygulama stateleri
-  const [rooms, setRooms] = useState([]); // Tüm odalar
-  const [activeRoom, setActiveRoom] = useState(null); // Seçili oda
-  const [messages, setMessages] = useState([]); // Odadaki mesajlar
-  const [input, setInput] = useState(""); // Mesaj yazma alanı
-  const [typingUser, setTypingUser] = useState(""); // "Yazıyor..." uyarısı
-  const [onlineUsers, setOnlineUsers] = useState([]); // Çevrimiçi kullanıcılar
+  const [rooms, setRooms] = useState([]);
+  const [activeRoom, setActiveRoom] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState("");
+  const [typingUser, setTypingUser] = useState("");
+  const [onlineUsers, setOnlineUsers] = useState([]);
 
-  // Oda oluşturma modalı stateleri
   const [showModal, setShowModal] = useState(false);
   const [newRoom, setNewRoom] = useState({ name: "", description: "" });
   const [roomError, setRoomError] = useState("");
   const [roomLoading, setRoomLoading] = useState(false);
 
-  // Mesaj düzenleme stateleri
   const [editingId, setEditingId] = useState(null);
   const [editContent, setEditContent] = useState("");
   const [hoveredId, setHoveredId] = useState(null);
 
-  // Oda düzenleme stateleri
   const [roomMenuId, setRoomMenuId] = useState(null);
-  const [editingRoom, setEditingRoom] = useState(null); // { id, name, description }
+  const [editingRoom, setEditingRoom] = useState(null);
   const [editRoomError, setEditRoomError] = useState("");
   const [editRoomLoading, setEditRoomLoading] = useState(false);
 
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const filteredMessages = searchQuery.trim()
+    ? messages.filter(
+        (m) =>
+          m.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          m.username?.toLowerCase().includes(searchQuery.toLowerCase()),
+      )
+    : messages;
+
   const typingTimeout = useRef(null);
-  // Mesaj listesinin sonuna kaydırma için referans
   const messagesEndRef = useRef(null);
 
-  // Sayfa yüklendiğinde odaları ve çevrimiçi kullanıcıları çek
   useEffect(() => {
     api.get("/rooms").then((res) => setRooms(res.data.rooms));
     api
@@ -46,21 +50,16 @@ const ChatPage = () => {
       .then((res) => setOnlineUsers(res.data.users));
   }, []);
 
-  // Socket olay dinleyicileri
   useEffect(() => {
     if (!socket) return;
 
-    // Odanın mesaj geçmişini al
     socket.on("messages:history", (msgs) => setMessages(msgs));
-    // Yeni gelen mesajı listeye ekle
     socket.on("message:receive", (msg) =>
       setMessages((prev) => [...prev, msg]),
     );
-    // Yazıyor... statüsünü güncelle
     socket.on("typing:update", ({ username, isTyping }) => {
       setTypingUser(isTyping ? `${username} yazıyor...` : "");
     });
-    // Biri çevrimiçi olduğunda listeye ekle
     socket.on("user:online", ({ userId, username }) => {
       setOnlineUsers((prev) => {
         const exists = prev.find((u) => u.id === userId);
@@ -68,15 +67,12 @@ const ChatPage = () => {
         return [...prev, { id: userId, username }];
       });
     });
-    // Biri çıkış yaptığında listeden çıkar
     socket.on("user:offline", ({ userId }) => {
       setOnlineUsers((prev) => prev.filter((u) => u.id !== userId));
     });
-    // Telefondan silinen mesajı arayüzden de sil
     socket.on("message:deleted", ({ messageId }) => {
       setMessages((prev) => prev.filter((m) => m.id !== messageId));
     });
-    // Düzenlenen mesajın içeriğini güncelle
     socket.on("message:edited", ({ messageId, content, updated_at }) => {
       setMessages((prev) =>
         prev.map((m) =>
@@ -84,15 +80,11 @@ const ChatPage = () => {
         ),
       );
     });
-
-    // Oda silindiğinde
     socket.on("room:deleted", ({ roomId }) => {
       setRooms((prev) => prev.filter((r) => r.id !== roomId));
       setActiveRoom((prev) => (prev?.id === roomId ? null : prev));
       setMessages((prev) => (activeRoom?.id === roomId ? [] : prev));
     });
-
-    // Oda güncellendiğinde
     socket.on("room:updated", (updatedRoom) => {
       setRooms((prev) =>
         prev.map((r) => (r.id === updatedRoom.id ? updatedRoom : r)),
@@ -102,7 +94,6 @@ const ChatPage = () => {
       );
     });
 
-    // Cleanup: Component unmount olduğunda tüm dinleyicileri kaldır
     return () => {
       socket.off("messages:history");
       socket.off("message:receive");
@@ -116,40 +107,36 @@ const ChatPage = () => {
     };
   }, [socket]);
 
-  // Mesajlar değiştiğinde her zaman en alta kaydır
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Yeni bir odaya katıl
   const joinRoom = (room) => {
     if (activeRoom?.id === room.id) return;
     setActiveRoom(room);
     setMessages([]);
-    socket.emit("room:join", room.id); // Sunucuya odaya katıldığımızı bildir
+    setSearchOpen(false);
+    setSearchQuery("");
+    socket.emit("room:join", room.id);
   };
 
-  // Yeni mesaj gönder
   const sendMessage = () => {
     if (!input.trim() || !activeRoom) return;
     socket.emit("message:send", { roomId: activeRoom.id, content: input });
     setInput("");
-    socket.emit("typing:stop", { roomId: activeRoom.id }); // Gönderince yazıyor statüsünü durdur
+    socket.emit("typing:stop", { roomId: activeRoom.id });
   };
 
-  // Yazma eylemini algıla ve diğer kullanıcılara bildir
   const handleTyping = (e) => {
     setInput(e.target.value);
     if (!activeRoom) return;
     socket.emit("typing:start", { roomId: activeRoom.id });
-    // 1.5 saniye yazılmadığında yazıyor durumunu kapat
     clearTimeout(typingTimeout.current);
     typingTimeout.current = setTimeout(() => {
       socket.emit("typing:stop", { roomId: activeRoom.id });
     }, 1500);
   };
 
-  // Enter tuşuna basıldığında mesajı gönder (Shift+Enter alt satıra geçer)
   const handleKeyDown = (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -157,7 +144,6 @@ const ChatPage = () => {
     }
   };
 
-  // Yeni oda oluştur
   const handleCreateRoom = async () => {
     setRoomError("");
     setRoomLoading(true);
@@ -167,7 +153,7 @@ const ChatPage = () => {
       setRooms((prev) => [...prev, created]);
       setNewRoom({ name: "", description: "" });
       setShowModal(false);
-      joinRoom(created); // Oluşturulan odaya otomatik olarak katıl
+      joinRoom(created);
     } catch (err) {
       setRoomError(err.response?.data?.message || "Bir hata oluştu.");
     } finally {
@@ -175,18 +161,15 @@ const ChatPage = () => {
     }
   };
 
-  // Mesaj silme işlemi
   const deleteMessage = (messageId) => {
     socket.emit("message:delete", { messageId, roomId: activeRoom.id });
   };
 
-  // Düzenleme modunu aktifleştir
   const startEdit = (msg) => {
     setEditingId(msg.id);
     setEditContent(msg.content);
   };
 
-  // Düzenlenen mesajı kaydet
   const submitEdit = (messageId) => {
     if (!editContent.trim()) return;
     socket.emit("message:edit", {
@@ -198,19 +181,16 @@ const ChatPage = () => {
     setEditContent("");
   };
 
-  // Düzenlemeyi iptal et
   const cancelEdit = () => {
     setEditingId(null);
     setEditContent("");
   };
 
-  // Oda silme işlemi
   const handleDeleteRoom = (roomId) => {
     socket.emit("room:delete", { roomId });
     setRoomMenuId(null);
   };
 
-  // Oda düzenleme işlemi
   const handleUpdateRoom = async () => {
     setEditRoomError("");
     setEditRoomLoading(true);
@@ -249,20 +229,6 @@ const ChatPage = () => {
             </button>
           </div>
 
-          {/* {rooms.map((room) => (
-            <button
-              key={room.id}
-              onClick={() => joinRoom(room)}
-              className={`w-full text-left px-3 py-2 rounded-lg mb-1 transition ${
-                activeRoom?.id === room.id
-                  ? "bg-indigo-600 text-white"
-                  : "text-gray-300 hover:bg-gray-700"
-              }`}
-            >
-              # {room.name}
-            </button>
-          ))} */}
-
           {rooms.map((room) => (
             <div key={room.id} className="relative">
               <div
@@ -281,20 +247,18 @@ const ChatPage = () => {
                   # {room.name}
                 </button>
 
-                {/* Sadece oda sahibine ⚙️ göster */}
                 {room.created_by === user?.id && (
                   <button
                     onClick={() =>
                       setRoomMenuId(roomMenuId === room.id ? null : room.id)
                     }
-                    className="text-gray-400 hover:text-white w-6 h-6 flex items-center justify-center rounded transition flex-shrink-0"
+                    className="text-gray-400 hover:text-white w-6 h-6 flex items-center justify-center rounded transition shrink-0"
                   >
                     ⚙️
                   </button>
                 )}
               </div>
 
-              {/* Dropdown menü */}
               {roomMenuId === room.id && (
                 <>
                   <div
@@ -343,17 +307,65 @@ const ChatPage = () => {
       <div className="flex-1 flex flex-col">
         {activeRoom ? (
           <>
-            <div className="p-4 border-b border-gray-700 bg-gray-800">
-              <h3 className="font-semibold"># {activeRoom.name}</h3>
-              {activeRoom.description && (
-                <p className="text-gray-400 text-sm">
-                  {activeRoom.description}
-                </p>
+            {/* Header — arama butonu burada */}
+            <div className="border-b border-gray-700 bg-gray-800">
+              <div className="flex items-center justify-between p-4">
+                <div>
+                  <h3 className="font-semibold"># {activeRoom.name}</h3>
+                  {activeRoom.description && (
+                    <p className="text-gray-400 text-sm">
+                      {activeRoom.description}
+                    </p>
+                  )}
+                </div>
+                <button
+                  onClick={() => {
+                    setSearchOpen(!searchOpen);
+                    setSearchQuery("");
+                  }}
+                  className={`w-8 h-8 flex items-center justify-center rounded-lg transition ${
+                    searchOpen
+                      ? "bg-indigo-600 text-white"
+                      : "text-gray-400 hover:text-white hover:bg-gray-700"
+                  }`}
+                  title="Mesajlarda ara"
+                >
+                  🔍
+                </button>
+              </div>
+
+              {/* Arama kutusu */}
+              {searchOpen && (
+                <div className="px-4 pb-3">
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Mesaj veya kullanıcı ara..."
+                    autoFocus
+                    className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                  {searchQuery && (
+                    <p className="text-gray-500 text-xs mt-2 px-1">
+                      {filteredMessages.length} sonuç bulundu
+                    </p>
+                  )}
+                </div>
               )}
             </div>
 
+            {/* Mesaj listesi */}
             <div className="flex-1 overflow-y-auto p-4 space-y-3">
-              {messages.map((msg) => (
+              {/* Arama sonucu yoksa */}
+              {searchQuery && filteredMessages.length === 0 && (
+                <div className="flex items-center justify-center h-32">
+                  <p className="text-gray-500 text-sm">
+                    "{searchQuery}" için sonuç bulunamadı
+                  </p>
+                </div>
+              )}
+
+              {filteredMessages.map((msg) => (
                 <div
                   key={msg.id}
                   className={`flex ${msg.user_id === user?.id ? "justify-end" : "justify-start"}`}
@@ -361,7 +373,6 @@ const ChatPage = () => {
                   onMouseLeave={() => setHoveredId(null)}
                 >
                   <div className="relative">
-                    {/* Aksiyon butonları */}
                     {msg.user_id === user?.id &&
                       hoveredId === msg.id &&
                       editingId !== msg.id && (
@@ -394,7 +405,6 @@ const ChatPage = () => {
                         </p>
                       )}
 
-                      {/* Düzenleme modu */}
                       {editingId === msg.id ? (
                         <div className="space-y-2">
                           <input
