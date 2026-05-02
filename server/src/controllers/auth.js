@@ -1,5 +1,6 @@
 import * as authService from "../services/auth.service.js";
 
+// Yeni kullanıcı kayıt denetleyicisi
 export const register = async (req, res) => {
   try {
     const data = await authService.registerUser(req.body);
@@ -11,6 +12,7 @@ export const register = async (req, res) => {
   }
 };
 
+// Kullanıcı giriş denetleyicisi
 export const login = async (req, res) => {
   try {
     const data = await authService.loginUser(req.body);
@@ -22,6 +24,7 @@ export const login = async (req, res) => {
   }
 };
 
+// Kendi bilgilerini getiren denetleyici
 export const getMe = async (req, res) => {
   try {
     const user = await authService.getUserById(req.userId);

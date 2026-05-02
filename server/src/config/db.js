@@ -5,6 +5,7 @@ dotenv.config();
 
 const { Pool } = pg;
 
+// PostgreSQL veritabanı bağlantısı için havuz (pool) oluştur
 const pool = new Pool({
   host: process.env.DB_HOST,
   port: process.env.DB_PORT,
@@ -13,12 +14,13 @@ const pool = new Pool({
   password: process.env.DB_PASSWORD,
 });
 
+// Veritabanı bağlantısını test et
 pool.connect((err, client, release) => {
   if (err) {
     console.error("❌ PostgreSQL bağlantı hatası:", err.message);
   } else {
     console.log("✅ PostgreSQL bağlantısı başarılı!");
-    release();
+    release(); // Test bağlantısını serbest bırak
   }
 });
 
