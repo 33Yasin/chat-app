@@ -8,6 +8,7 @@ const ChatPage = () => {
   const token = localStorage.getItem("token");
   const socket = useSocket(token);
 
+  // Chat State
   const [rooms, setRooms] = useState([]);
   const [activeRoom, setActiveRoom] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -15,6 +16,7 @@ const ChatPage = () => {
   const [typingUser, setTypingUser] = useState("");
   const [onlineUsers, setOnlineUsers] = useState([]);
 
+  // Modal State
   const [showModal, setShowModal] = useState(false);
   const [newRoom, setNewRoom] = useState({ name: "", description: "" });
   const [roomError, setRoomError] = useState("");
@@ -24,6 +26,7 @@ const ChatPage = () => {
   const [editContent, setEditContent] = useState("");
   const [hoveredId, setHoveredId] = useState(null);
 
+  // Room State
   const [roomMenuId, setRoomMenuId] = useState(null);
   const [editingRoom, setEditingRoom] = useState(null);
   const [editRoomError, setEditRoomError] = useState("");
@@ -31,6 +34,14 @@ const ChatPage = () => {
 
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+
+  // Profile State
+  const [showProfile, setShowProfile] = useState(false);
+  const [profileData, setProfileData] = useState(null);
+  const [editUsername, setEditUsername] = useState("");
+  const [profileError, setProfileError] = useState("");
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileSuccess, setProfileSuccess] = useState("");
 
   const filteredMessages = searchQuery.trim()
     ? messages.filter(
@@ -208,6 +219,37 @@ const ChatPage = () => {
     }
   };
 
+  const openProfile = async () => {
+    try {
+      const res = await api.get("/users/profile");
+      setProfileData(res.data.user);
+      setEditUsername(res.data.user.username);
+      setProfileError("");
+      setProfileSuccess("");
+      setShowProfile(true);
+    } catch (err) {
+      console.error("Profil yüklenemedi:", err);
+    }
+  };
+
+  const handleUpdateProfile = async () => {
+    setProfileError("");
+    setProfileSuccess("");
+    setProfileLoading(true);
+    try {
+      const res = await api.put("/users/profile", { username: editUsername });
+      setProfileData(res.data.user);
+      setProfileSuccess("Profil güncellendi!");
+
+      // Auth context'teki user'ı da güncelle
+      // (AuthContext'e updateUser ekleyeceğiz)
+    } catch (err) {
+      setProfileError(err.response?.data?.message || "Bir hata oluştu.");
+    } finally {
+      setProfileLoading(false);
+    }
+  };
+
   return (
     <div className="flex h-screen bg-gray-900 text-white">
       {/* Sol Sidebar — Odalar */}
@@ -293,7 +335,24 @@ const ChatPage = () => {
           ))}
         </div>
 
-        <div className="p-4 border-t border-gray-700">
+        <div className="p-4 border-t border-gray-700 space-y-2">
+          {/* Profil butonu */}
+          <button
+            onClick={openProfile}
+            className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-700 transition"
+          >
+            <div className="w-8 h-8 bg-indigo-600 rounded-full flex items-center justify-center text-sm font-bold shrink-0">
+              {user?.username?.[0]?.toUpperCase()}
+            </div>
+            <div className="text-left overflow-hidden">
+              <p className="text-sm font-medium text-white truncate">
+                {user?.username}
+              </p>
+              <p className="text-xs text-gray-400">Profili görüntüle</p>
+            </div>
+          </button>
+
+          {/* Çıkış butonu */}
           <button
             onClick={logout}
             className="w-full bg-red-600 hover:bg-red-700 text-white py-2 rounded-lg text-sm transition"
@@ -647,6 +706,102 @@ const ChatPage = () => {
                 className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-lg transition disabled:opacity-50"
               >
                 {editRoomLoading ? "Kaydediliyor..." : "Kaydet"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Profil Modal */}
+      {showProfile && profileData && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+          <div className="bg-gray-800 rounded-2xl p-6 w-full max-w-md shadow-2xl">
+            {/* Başlık */}
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-bold">Profil</h3>
+              <button
+                onClick={() => setShowProfile(false)}
+                className="text-gray-400 hover:text-white transition"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Avatar */}
+            <div className="flex justify-center mb-6">
+              <div className="w-20 h-20 bg-indigo-600 rounded-full flex items-center justify-center text-3xl font-bold">
+                {profileData.username?.[0]?.toUpperCase()}
+              </div>
+            </div>
+
+            {/* Bilgiler */}
+            <div className="space-y-4">
+              <div>
+                <label className="text-gray-400 text-xs uppercase mb-1 block">
+                  Email
+                </label>
+                <p className="text-white bg-gray-700 px-4 py-3 rounded-lg text-sm">
+                  {profileData.email}
+                </p>
+              </div>
+
+              <div>
+                <label className="text-gray-300 text-xs uppercase mb-1 block">
+                  Kullanıcı Adı
+                </label>
+                <input
+                  type="text"
+                  value={editUsername}
+                  onChange={(e) => setEditUsername(e.target.value)}
+                  className="w-full bg-gray-700 text-white px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="text-gray-400 text-xs uppercase mb-1 block">
+                  Üyelik Tarihi
+                </label>
+                <p className="text-gray-300 bg-gray-700 px-4 py-3 rounded-lg text-sm">
+                  {new Date(profileData.created_at).toLocaleDateString(
+                    "tr-TR",
+                    {
+                      year: "numeric",
+                      month: "long",
+                      day: "numeric",
+                    },
+                  )}
+                </p>
+              </div>
+            </div>
+
+            {/* Hata / Başarı mesajı */}
+            {profileError && (
+              <div className="mt-4 bg-red-500/20 border border-red-500 text-red-400 px-4 py-3 rounded-lg text-sm">
+                {profileError}
+              </div>
+            )}
+            {profileSuccess && (
+              <div className="mt-4 bg-green-500/20 border border-green-500 text-green-400 px-4 py-3 rounded-lg text-sm">
+                {profileSuccess}
+              </div>
+            )}
+
+            {/* Butonlar */}
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => setShowProfile(false)}
+                className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-3 rounded-lg transition"
+              >
+                Kapat
+              </button>
+              <button
+                onClick={handleUpdateProfile}
+                disabled={
+                  profileLoading || editUsername === profileData.username
+                }
+                className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-lg transition disabled:opacity-50"
+              >
+                {profileLoading ? "Kaydediliyor..." : "Kaydet"}
               </button>
             </div>
           </div>

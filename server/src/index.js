@@ -7,6 +7,7 @@ import authRoutes from "./routes/auth.js";
 import initSocket from "./socket/index.js";
 import roomRoutes from "./routes/room.js";
 import messageRoutes from "./routes/message.js";
+import userRoutes from "./routes/user.js";
 
 // .env dosyasındaki ortam değişkenlerini yükler
 dotenv.config();
@@ -26,6 +27,7 @@ app.use(express.json());
 app.use("/api/auth", authRoutes);
 app.use("/api/rooms", roomRoutes);
 app.use("/api/messages", messageRoutes);
+app.use("/api/users", userRoutes);
 
 // Sunucunun çalışıp çalışmadığını test etmek için kök rota
 app.get("/", (req, res) => {
