@@ -54,24 +54,37 @@ const initSocket = (server) => {
     // ─── ODAYA KATIL ───────────────────────────────────────
     socket.on("room:join", async (roomId) => {
       socket.join(roomId);
-      console.log(`👤 ${user.username} odaya katıldı: ${roomId}`);
 
-      // Odanın son 50 mesajını çek
       const messages = await pool.query(
-        `SELECT m.id, m.content, m.created_at,
-                u.id as user_id, u.username, u.avatar_url
-         FROM messages m
-         JOIN users u ON m.user_id = u.id
-         WHERE m.room_id = $1
-         ORDER BY m.created_at ASC
-         LIMIT 50`,
+        `SELECT m.id, m.content, m.created_at, m.updated_at,
+            u.id as user_id, u.username, u.avatar_url,
+            COALESCE(
+              JSON_AGG(
+                JSON_BUILD_OBJECT(
+                  'emoji', r.emoji,
+                  'count', r.reaction_count,
+                  'user_ids', r.user_ids
+                )
+              ) FILTER (WHERE r.emoji IS NOT NULL),
+              '[]'
+            ) as reactions
+     FROM messages m
+     JOIN users u ON m.user_id = u.id
+     LEFT JOIN (
+       SELECT message_id, emoji, COUNT(*) as reaction_count,
+              ARRAY_AGG(user_id) as user_ids
+       FROM reactions
+       GROUP BY message_id, emoji
+     ) r ON r.message_id = m.id
+     WHERE m.room_id = $1
+     GROUP BY m.id, u.id, u.username, u.avatar_url
+     ORDER BY m.created_at ASC
+     LIMIT 50`,
         [roomId],
       );
 
-      // Sadece bu kullanıcıya geçmiş mesajları gönder
       socket.emit("messages:history", messages.rows);
 
-      // Odadakilere katılım bildir
       io.to(roomId).emit("room:user_joined", {
         username: user.username,
         roomId,
@@ -137,6 +150,51 @@ const initSocket = (server) => {
         });
       } catch (error) {
         socket.emit("error", { message: "Mesaj düzenlenemedi." });
+      }
+    });
+
+    // ─── REAKSİYON TOGGLE ──────────────────────────────────
+    socket.on("reaction:toggle", async ({ messageId, roomId, emoji }) => {
+      try {
+        // Mesajın bu odaya ait olduğunu doğrula
+        const msgCheck = await pool.query(
+          "SELECT id FROM messages WHERE id = $1 AND room_id = $2",
+          [messageId, roomId],
+        );
+        if (msgCheck.rows.length === 0) return;
+
+        // Reaksiyonu toggle et
+        const existing = await pool.query(
+          "SELECT id FROM reactions WHERE message_id = $1 AND user_id = $2 AND emoji = $3",
+          [messageId, socket.userId, emoji],
+        );
+
+        if (existing.rows.length > 0) {
+          await pool.query(
+            "DELETE FROM reactions WHERE message_id = $1 AND user_id = $2 AND emoji = $3",
+            [messageId, socket.userId, emoji],
+          );
+        } else {
+          await pool.query(
+            "INSERT INTO reactions (message_id, user_id, emoji) VALUES ($1, $2, $3)",
+            [messageId, socket.userId, emoji],
+          );
+        }
+
+        // Güncel reaksiyonları çek
+        const result = await pool.query(
+          `SELECT emoji, COUNT(*) as count, ARRAY_AGG(user_id) as user_ids
+       FROM reactions WHERE message_id = $1 GROUP BY emoji`,
+          [messageId],
+        );
+
+        // Odadaki herkese bildir
+        io.to(roomId).emit("reaction:updated", {
+          messageId,
+          reactions: result.rows,
+        });
+      } catch (error) {
+        console.error("Reaksiyon hatası:", error.message);
       }
     });
 

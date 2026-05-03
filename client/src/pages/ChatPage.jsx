@@ -43,6 +43,11 @@ const ChatPage = () => {
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileSuccess, setProfileSuccess] = useState("");
 
+  // emoji picker
+  const [emojiPickerMsgId, setEmojiPickerMsgId] = useState(null);
+
+  const EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🔥", "👏", "🎉"];
+
   const filteredMessages = searchQuery.trim()
     ? messages.filter(
         (m) =>
@@ -104,6 +109,11 @@ const ChatPage = () => {
         prev?.id === updatedRoom.id ? updatedRoom : prev,
       );
     });
+    socket.on("reaction:updated", ({ messageId, reactions }) => {
+      setMessages((prev) =>
+        prev.map((m) => (m.id === messageId ? { ...m, reactions } : m)),
+      );
+    });
 
     return () => {
       socket.off("messages:history");
@@ -115,6 +125,7 @@ const ChatPage = () => {
       socket.off("message:edited");
       socket.off("room:deleted");
       socket.off("room:updated");
+      socket.off("reaction:updated");
     };
   }, [socket]);
 
@@ -250,6 +261,15 @@ const ChatPage = () => {
     }
   };
 
+  const toggleReaction = (messageId, emoji) => {
+    socket.emit("reaction:toggle", {
+      messageId,
+      roomId: activeRoom.id,
+      emoji,
+    });
+    setEmojiPickerMsgId(null);
+  };
+
   return (
     <div className="flex h-screen bg-gray-900 text-white">
       {/* Sol Sidebar — Odalar */}
@@ -336,7 +356,6 @@ const ChatPage = () => {
         </div>
 
         <div className="p-4 border-t border-gray-700 space-y-2">
-          {/* Profil butonu */}
           <button
             onClick={openProfile}
             className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-700 transition"
@@ -351,8 +370,6 @@ const ChatPage = () => {
               <p className="text-xs text-gray-400">Profili görüntüle</p>
             </div>
           </button>
-
-          {/* Çıkış butonu */}
           <button
             onClick={logout}
             className="w-full bg-red-600 hover:bg-red-700 text-white py-2 rounded-lg text-sm transition"
@@ -366,7 +383,6 @@ const ChatPage = () => {
       <div className="flex-1 flex flex-col">
         {activeRoom ? (
           <>
-            {/* Header — arama butonu burada */}
             <div className="border-b border-gray-700 bg-gray-800">
               <div className="flex items-center justify-between p-4">
                 <div>
@@ -393,7 +409,6 @@ const ChatPage = () => {
                 </button>
               </div>
 
-              {/* Arama kutusu */}
               {searchOpen && (
                 <div className="px-4 pb-3">
                   <input
@@ -413,9 +428,7 @@ const ChatPage = () => {
               )}
             </div>
 
-            {/* Mesaj listesi */}
             <div className="flex-1 overflow-y-auto p-4 space-y-3">
-              {/* Arama sonucu yoksa */}
               {searchQuery && filteredMessages.length === 0 && (
                 <div className="flex items-center justify-center h-32">
                   <p className="text-gray-500 text-sm">
@@ -431,7 +444,8 @@ const ChatPage = () => {
                   onMouseEnter={() => setHoveredId(msg.id)}
                   onMouseLeave={() => setHoveredId(null)}
                 >
-                  <div className="relative">
+                  <div className="relative max-w-xs lg:max-w-md">
+                    {/* Düzenle / Sil butonları */}
                     {msg.user_id === user?.id &&
                       hoveredId === msg.id &&
                       editingId !== msg.id && (
@@ -451,8 +465,50 @@ const ChatPage = () => {
                         </div>
                       )}
 
+                    {/* Emoji picker butonu */}
+                    {hoveredId === msg.id && editingId !== msg.id && (
+                      <div
+                        className={`absolute -top-8 ${msg.user_id === user?.id ? "left-0" : "right-0"} z-10`}
+                      >
+                        <button
+                          onClick={() =>
+                            setEmojiPickerMsgId(
+                              emojiPickerMsgId === msg.id ? null : msg.id,
+                            )
+                          }
+                          className="bg-gray-700 hover:bg-gray-600 text-sm px-2 py-1 rounded-lg shadow-lg transition"
+                        >
+                          😊
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Emoji picker dropdown */}
+                    {emojiPickerMsgId === msg.id && (
+                      <>
+                        <div
+                          className="fixed inset-0 z-10"
+                          onClick={() => setEmojiPickerMsgId(null)}
+                        />
+                        <div
+                          className={`absolute -top-16 ${msg.user_id === user?.id ? "left-0" : "right-0"} bg-gray-700 rounded-xl shadow-2xl z-20 p-2 flex gap-1`}
+                        >
+                          {EMOJIS.map((emoji) => (
+                            <button
+                              key={emoji}
+                              onClick={() => toggleReaction(msg.id, emoji)}
+                              className="text-xl hover:bg-gray-600 w-9 h-9 flex items-center justify-center rounded-lg transition hover:scale-125"
+                            >
+                              {emoji}
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    )}
+
+                    {/* Mesaj balonu */}
                     <div
-                      className={`max-w-xs lg:max-w-md px-4 py-2 rounded-2xl ${
+                      className={`px-4 py-2 rounded-2xl ${
                         msg.user_id === user?.id
                           ? "bg-indigo-600 text-white rounded-br-none"
                           : "bg-gray-700 text-white rounded-bl-none"
@@ -508,14 +564,35 @@ const ChatPage = () => {
                         <p className="text-xs opacity-60">
                           {new Date(msg.created_at).toLocaleTimeString(
                             "tr-TR",
-                            {
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            },
+                            { hour: "2-digit", minute: "2-digit" },
                           )}
                         </p>
                       </div>
                     </div>
+
+                    {/* Reaksiyonlar */}
+                    {msg.reactions && msg.reactions.length > 0 && (
+                      <div
+                        className={`flex flex-wrap gap-1 mt-1 ${msg.user_id === user?.id ? "justify-end" : "justify-start"}`}
+                      >
+                        {msg.reactions.map((reaction) => (
+                          <button
+                            key={reaction.emoji}
+                            onClick={() =>
+                              toggleReaction(msg.id, reaction.emoji)
+                            }
+                            className={`flex items-center gap-1 text-xs px-2 py-1 rounded-full border transition ${
+                              reaction.user_ids?.includes(user?.id)
+                                ? "bg-indigo-600/30 border-indigo-500 text-white"
+                                : "bg-gray-700 border-gray-600 text-gray-300 hover:border-gray-400"
+                            }`}
+                          >
+                            <span>{reaction.emoji}</span>
+                            <span>{reaction.count}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
@@ -565,11 +642,7 @@ const ChatPage = () => {
             <div key={u.id} className="flex items-center gap-2">
               <div className="w-2 h-2 bg-green-400 rounded-full" />
               <span
-                className={`text-sm ${
-                  u.id === user?.id
-                    ? "text-indigo-400 font-semibold"
-                    : "text-gray-300"
-                }`}
+                className={`text-sm ${u.id === user?.id ? "text-indigo-400 font-semibold" : "text-gray-300"}`}
               >
                 {u.username} {u.id === user?.id && "(sen)"}
               </span>
@@ -586,13 +659,11 @@ const ChatPage = () => {
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
           <div className="bg-gray-800 rounded-2xl p-6 w-full max-w-md shadow-2xl">
             <h3 className="text-xl font-bold mb-4">Yeni Oda Oluştur</h3>
-
             {roomError && (
               <div className="bg-red-500/20 border border-red-500 text-red-400 px-4 py-3 rounded-lg mb-4 text-sm">
                 {roomError}
               </div>
             )}
-
             <div className="space-y-4">
               <div>
                 <label className="text-gray-300 text-sm mb-1 block">
@@ -623,7 +694,6 @@ const ChatPage = () => {
                 />
               </div>
             </div>
-
             <div className="flex gap-3 mt-6">
               <button
                 onClick={() => {
@@ -651,13 +721,11 @@ const ChatPage = () => {
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
           <div className="bg-gray-800 rounded-2xl p-6 w-full max-w-md shadow-2xl">
             <h3 className="text-xl font-bold mb-4">Odayı Düzenle</h3>
-
             {editRoomError && (
               <div className="bg-red-500/20 border border-red-500 text-red-400 px-4 py-3 rounded-lg mb-4 text-sm">
                 {editRoomError}
               </div>
             )}
-
             <div className="space-y-4">
               <div>
                 <label className="text-gray-300 text-sm mb-1 block">
@@ -689,7 +757,6 @@ const ChatPage = () => {
                 />
               </div>
             </div>
-
             <div className="flex gap-3 mt-6">
               <button
                 onClick={() => {
@@ -716,7 +783,6 @@ const ChatPage = () => {
       {showProfile && profileData && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
           <div className="bg-gray-800 rounded-2xl p-6 w-full max-w-md shadow-2xl">
-            {/* Başlık */}
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-xl font-bold">Profil</h3>
               <button
@@ -726,15 +792,11 @@ const ChatPage = () => {
                 ✕
               </button>
             </div>
-
-            {/* Avatar */}
             <div className="flex justify-center mb-6">
               <div className="w-20 h-20 bg-indigo-600 rounded-full flex items-center justify-center text-3xl font-bold">
                 {profileData.username?.[0]?.toUpperCase()}
               </div>
             </div>
-
-            {/* Bilgiler */}
             <div className="space-y-4">
               <div>
                 <label className="text-gray-400 text-xs uppercase mb-1 block">
@@ -744,7 +806,6 @@ const ChatPage = () => {
                   {profileData.email}
                 </p>
               </div>
-
               <div>
                 <label className="text-gray-300 text-xs uppercase mb-1 block">
                   Kullanıcı Adı
@@ -756,7 +817,6 @@ const ChatPage = () => {
                   className="w-full bg-gray-700 text-white px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
                 />
               </div>
-
               <div>
                 <label className="text-gray-400 text-xs uppercase mb-1 block">
                   Üyelik Tarihi
@@ -764,17 +824,11 @@ const ChatPage = () => {
                 <p className="text-gray-300 bg-gray-700 px-4 py-3 rounded-lg text-sm">
                   {new Date(profileData.created_at).toLocaleDateString(
                     "tr-TR",
-                    {
-                      year: "numeric",
-                      month: "long",
-                      day: "numeric",
-                    },
+                    { year: "numeric", month: "long", day: "numeric" },
                   )}
                 </p>
               </div>
             </div>
-
-            {/* Hata / Başarı mesajı */}
             {profileError && (
               <div className="mt-4 bg-red-500/20 border border-red-500 text-red-400 px-4 py-3 rounded-lg text-sm">
                 {profileError}
@@ -785,8 +839,6 @@ const ChatPage = () => {
                 {profileSuccess}
               </div>
             )}
-
-            {/* Butonlar */}
             <div className="flex gap-3 mt-6">
               <button
                 onClick={() => setShowProfile(false)}
