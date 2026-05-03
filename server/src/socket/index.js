@@ -265,6 +265,59 @@ const initSocket = (server) => {
         socket.emit("error", { message: "Oda güncellenemedi." });
       }
     });
+
+    // ─── ÖZEL MESAJ ────────────────────────────────────────
+    socket.on("dm:send", async ({ receiverId, content }) => {
+      if (!content?.trim()) return;
+
+      try {
+        // Mesajı kaydet
+        const result = await pool.query(
+          `INSERT INTO direct_messages (content, sender_id, receiver_id)
+       VALUES ($1, $2, $3)
+       RETURNING id, content, sender_id, receiver_id, created_at`,
+          [content.trim(), socket.userId, receiverId],
+        );
+
+        const message = {
+          ...result.rows[0],
+          sender_username: user.username,
+        };
+
+        // Gönderene geri yansıt
+        socket.emit("dm:receive", message);
+
+        // Alıcı online mı? Ona da gönder
+        const receiverSocket = [...io.sockets.sockets.values()].find(
+          (s) => s.userId === receiverId,
+        );
+
+        if (receiverSocket) {
+          receiverSocket.emit("dm:receive", message);
+          receiverSocket.emit("dm:notification", {
+            senderId: socket.userId,
+            senderUsername: user.username,
+            content: content.trim(),
+          });
+        }
+      } catch (error) {
+        console.error("DM gönderme hatası:", error.message);
+      }
+    });
+
+    // ─── DM OKUNDU ─────────────────────────────────────────
+    socket.on("dm:read", async ({ senderId }) => {
+      try {
+        await pool.query(
+          `UPDATE direct_messages 
+       SET is_read = true
+       WHERE receiver_id = $1 AND sender_id = $2 AND is_read = false`,
+          [socket.userId, senderId],
+        );
+      } catch (error) {
+        console.error("DM okundu hatası:", error.message);
+      }
+    });
   });
 
   return io;

@@ -2,6 +2,18 @@ import { useState, useEffect, useRef } from "react";
 import { useAuth } from "../context/AuthContext.jsx";
 import useSocket from "../hooks/useSocket.js";
 import api from "../services/api.js";
+import {
+  Search,
+  Pencil,
+  Trash2,
+  X,
+  Menu,
+  Users,
+  Settings,
+  Plus,
+  Check,
+} from "lucide-react";
+import DMPanel from "../components/DMPanel.jsx";
 
 const ChatPage = () => {
   const { user, logout } = useAuth();
@@ -45,6 +57,31 @@ const ChatPage = () => {
 
   // emoji picker
   const [emojiPickerMsgId, setEmojiPickerMsgId] = useState(null);
+
+  // Mobile Sidebar States
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isOnlineUsersOpen, setIsOnlineUsersOpen] = useState(false);
+
+  // Message Selection
+  const [selectedMessageId, setSelectedMessageId] = useState(null);
+  const [messageToDelete, setMessageToDelete] = useState(null);
+  const pressTimerRef = useRef(null);
+
+  // DM State
+  const [activeDMs, setActiveDMs] = useState([]); // açık DM panelleri
+  const [dmNotifications, setDmNotifications] = useState({}); // { userId: count }
+
+  const handlePressStart = (msgId) => {
+    if (editingId) return;
+    pressTimerRef.current = setTimeout(() => {
+      setSelectedMessageId(msgId);
+      if (navigator.vibrate) navigator.vibrate(50);
+    }, 400);
+  };
+
+  const handlePressEnd = () => {
+    if (pressTimerRef.current) clearTimeout(pressTimerRef.current);
+  };
 
   const EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🔥", "👏", "🎉"];
 
@@ -114,6 +151,12 @@ const ChatPage = () => {
         prev.map((m) => (m.id === messageId ? { ...m, reactions } : m)),
       );
     });
+    socket.on("dm:notification", ({ senderId, senderUsername, content }) => {
+      setDmNotifications((prev) => ({
+        ...prev,
+        [senderId]: (prev[senderId] || 0) + 1,
+      }));
+    });
 
     return () => {
       socket.off("messages:history");
@@ -126,6 +169,7 @@ const ChatPage = () => {
       socket.off("room:deleted");
       socket.off("room:updated");
       socket.off("reaction:updated");
+      socket.off("dm:notification");
     };
   }, [socket]);
 
@@ -140,6 +184,7 @@ const ChatPage = () => {
     setSearchOpen(false);
     setSearchQuery("");
     socket.emit("room:join", room.id);
+    setIsSidebarOpen(false);
   };
 
   const sendMessage = () => {
@@ -211,6 +256,7 @@ const ChatPage = () => {
   const handleDeleteRoom = (roomId) => {
     socket.emit("room:delete", { roomId });
     setRoomMenuId(null);
+    setEditingRoom(null);
   };
 
   const handleUpdateRoom = async () => {
@@ -270,10 +316,38 @@ const ChatPage = () => {
     setEmojiPickerMsgId(null);
   };
 
+  const openDM = (targetUser) => {
+    // Zaten açıksa tekrar açma
+    if (activeDMs.find((u) => u.id === targetUser.id)) return;
+    setActiveDMs((prev) => [...prev, targetUser]);
+    // Bildirimi temizle
+    setDmNotifications((prev) => {
+      const updated = { ...prev };
+      delete updated[targetUser.id];
+      return updated;
+    });
+  };
+
+  const closeDM = (userId) => {
+    setActiveDMs((prev) => prev.filter((u) => u.id !== userId));
+  };
+
   return (
-    <div className="flex h-screen bg-gray-900 text-white">
+    <div className="flex h-screen bg-gray-900 text-white overflow-hidden">
+      {/* Mobil Sidebar Overlay */}
+      {isSidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-30 md:hidden"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
+
       {/* Sol Sidebar — Odalar */}
-      <div className="w-60 bg-gray-800 flex flex-col border-r border-gray-700">
+      <div
+        className={`fixed inset-y-0 left-0 z-40 w-64 bg-gray-800 flex flex-col border-r border-gray-700 transform transition-transform duration-300 md:relative md:translate-x-0 ${
+          isSidebarOpen ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
         <div className="p-4 border-b border-gray-700">
           <h2 className="font-bold text-lg">💬 Chat App</h2>
           <p className="text-gray-400 text-sm">@{user?.username}</p>
@@ -284,10 +358,10 @@ const ChatPage = () => {
             <p className="text-gray-500 text-xs uppercase">Odalar</p>
             <button
               onClick={() => setShowModal(true)}
-              className="text-gray-400 hover:text-white text-lg leading-none transition"
+              className="text-gray-400 hover:text-white transition"
               title="Yeni oda oluştur"
             >
-              +
+              <Plus size={20} />
             </button>
           </div>
 
@@ -311,46 +385,19 @@ const ChatPage = () => {
 
                 {room.created_by === user?.id && (
                   <button
-                    onClick={() =>
-                      setRoomMenuId(roomMenuId === room.id ? null : room.id)
-                    }
+                    onClick={() => {
+                      setEditingRoom({
+                        id: room.id,
+                        name: room.name,
+                        description: room.description || "",
+                      });
+                    }}
                     className="text-gray-400 hover:text-white w-6 h-6 flex items-center justify-center rounded transition shrink-0"
                   >
-                    ⚙️
+                    <Settings size={18} />
                   </button>
                 )}
               </div>
-
-              {roomMenuId === room.id && (
-                <>
-                  <div
-                    className="fixed inset-0 z-10"
-                    onClick={() => setRoomMenuId(null)}
-                  />
-                  <div className="absolute left-0 top-9 bg-gray-700 rounded-xl shadow-2xl z-20 overflow-hidden w-40">
-                    <button
-                      onClick={() => {
-                        setEditingRoom({
-                          id: room.id,
-                          name: room.name,
-                          description: room.description || "",
-                        });
-                        setRoomMenuId(null);
-                      }}
-                      className="w-full flex items-center gap-2 px-4 py-3 text-sm text-gray-200 hover:bg-gray-600 transition"
-                    >
-                      ✏️ <span>Düzenle</span>
-                    </button>
-                    <div className="border-t border-gray-600" />
-                    <button
-                      onClick={() => handleDeleteRoom(room.id)}
-                      className="w-full flex items-center gap-2 px-4 py-3 text-sm text-red-400 hover:bg-gray-600 transition"
-                    >
-                      🗑️ <span>Sil</span>
-                    </button>
-                  </div>
-                </>
-              )}
             </div>
           ))}
         </div>
@@ -383,52 +430,120 @@ const ChatPage = () => {
       <div className="flex-1 flex flex-col">
         {activeRoom ? (
           <>
-            <div className="border-b border-gray-700 bg-gray-800">
-              <div className="flex items-center justify-between p-4">
-                <div>
-                  <h3 className="font-semibold"># {activeRoom.name}</h3>
-                  {activeRoom.description && (
-                    <p className="text-gray-400 text-sm">
-                      {activeRoom.description}
-                    </p>
-                  )}
+            <div className="relative z-30 border-b border-gray-700 bg-gray-800">
+              {selectedMessageId ? (
+                <div className="flex items-center justify-between p-3 sm:p-4 bg-indigo-900/40">
+                  <div className="flex items-center gap-3 z-10">
+                    <button
+                      onClick={() => setSelectedMessageId(null)}
+                      className="text-gray-400 hover:text-white w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-700 transition"
+                      title="İptal"
+                    >
+                      <X size={20} />
+                    </button>
+                    <span className="text-sm font-semibold text-indigo-100">
+                      1 Seçili
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1 sm:gap-2 z-10">
+                    {messages.find((m) => m.id === selectedMessageId)
+                      ?.user_id === user?.id && (
+                      <>
+                        <button
+                          onClick={() => {
+                            const msg = messages.find(
+                              (m) => m.id === selectedMessageId,
+                            );
+                            if (msg) startEdit(msg);
+                            setSelectedMessageId(null);
+                          }}
+                          className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-300 hover:text-indigo-400 hover:bg-gray-700 transition"
+                          title="Düzenle"
+                        >
+                          <Pencil size={18} />
+                        </button>
+                        <button
+                          onClick={() => {
+                            setMessageToDelete(selectedMessageId);
+                          }}
+                          className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-300 hover:text-red-400 hover:bg-gray-700 transition"
+                          title="Sil"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
-                <button
-                  onClick={() => {
-                    setSearchOpen(!searchOpen);
-                    setSearchQuery("");
-                  }}
-                  className={`w-8 h-8 flex items-center justify-center rounded-lg transition ${
-                    searchOpen
-                      ? "bg-indigo-600 text-white"
-                      : "text-gray-400 hover:text-white hover:bg-gray-700"
-                  }`}
-                  title="Mesajlarda ara"
-                >
-                  🔍
-                </button>
-              </div>
-
-              {searchOpen && (
-                <div className="px-4 pb-3">
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Mesaj veya kullanıcı ara..."
-                    autoFocus
-                    className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  />
-                  {searchQuery && (
-                    <p className="text-gray-500 text-xs mt-2 px-1">
-                      {filteredMessages.length} sonuç bulundu
-                    </p>
-                  )}
+              ) : (
+                <div className="flex items-center justify-between p-3 sm:p-4 relative">
+                  <div className="flex items-center gap-2 sm:gap-3">
+                    <button
+                      onClick={() => setIsSidebarOpen(true)}
+                      className="md:hidden text-gray-400 hover:text-white w-8 h-8 flex items-center justify-center rounded hover:bg-gray-700 transition"
+                    >
+                      <Menu size={20} />
+                    </button>
+                    <div>
+                      <h3 className="font-semibold text-sm sm:text-base truncate max-w-[90px] sm:max-w-[200px]">
+                        # {activeRoom.name}
+                      </h3>
+                      {activeRoom.description && (
+                        <p className="text-gray-400 text-xs sm:text-sm hidden sm:block truncate max-w-xs">
+                          {activeRoom.description}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 sm:gap-2 ml-auto">
+                    <div className="relative flex items-center gap-1 sm:gap-2">
+                      <input
+                        type="text"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder="Ara..."
+                        className="w-24 sm:w-48 lg:w-64 bg-gray-700 text-white px-3 py-1.5 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                      {searchQuery && (
+                        <div className="absolute top-full right-0 mt-1 text-xs text-gray-300 bg-gray-700/90 backdrop-blur px-2 py-1 rounded shadow-lg z-20 whitespace-nowrap border border-gray-600">
+                          {filteredMessages.length} sonuç
+                        </div>
+                      )}
+                      <button
+                        onClick={() => {
+                          if (searchQuery) setSearchQuery("");
+                        }}
+                        className="w-8 h-8 flex items-center justify-center rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition shrink-0"
+                        title={searchQuery ? "Aramayı Temizle" : "Ara"}
+                      >
+                        <Search size={18} />
+                      </button>
+                    </div>
+                    <button
+                      onClick={() => setIsOnlineUsersOpen(true)}
+                      className="lg:hidden text-gray-400 hover:text-white w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-700 transition shrink-0"
+                      title="Online Kullanıcılar"
+                    >
+                      <Users size={18} />
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+            <div className="flex-1 overflow-y-auto p-4 space-y-3 relative">
+              {/* Seçim Overlay'i */}
+              {selectedMessageId && (
+                <div
+                  className="fixed inset-0 bg-black/20 z-20"
+                  onClick={() => setSelectedMessageId(null)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setSelectedMessageId(null);
+                  }}
+                />
+              )}
+
               {searchQuery && filteredMessages.length === 0 && (
                 <div className="flex items-center justify-center h-32">
                   <p className="text-gray-500 text-sm">
@@ -440,70 +555,46 @@ const ChatPage = () => {
               {filteredMessages.map((msg) => (
                 <div
                   key={msg.id}
-                  className={`flex ${msg.user_id === user?.id ? "justify-end" : "justify-start"}`}
-                  onMouseEnter={() => setHoveredId(msg.id)}
-                  onMouseLeave={() => setHoveredId(null)}
+                  className={`flex ${msg.user_id === user?.id ? "justify-end" : "justify-start"} relative`}
+                  onTouchStart={() => handlePressStart(msg.id)}
+                  onTouchEnd={handlePressEnd}
+                  onTouchMove={handlePressEnd}
+                  onMouseDown={() => handlePressStart(msg.id)}
+                  onMouseUp={handlePressEnd}
+                  onMouseLeave={handlePressEnd}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    if (editingId) return;
+                    setSelectedMessageId(msg.id);
+                    if (navigator.vibrate) navigator.vibrate(50);
+                  }}
                 >
-                  <div className="relative max-w-xs lg:max-w-md">
-                    {/* Düzenle / Sil butonları */}
-                    {msg.user_id === user?.id &&
-                      hoveredId === msg.id &&
-                      editingId !== msg.id && (
-                        <div className="absolute -top-8 right-0 flex gap-1 bg-gray-700 rounded-lg px-2 py-1 shadow-lg z-10">
-                          <button
-                            onClick={() => startEdit(msg)}
-                            className="text-gray-300 hover:text-white text-xs px-2 py-1 rounded hover:bg-gray-600 transition"
-                          >
-                            ✏️ Düzenle
-                          </button>
-                          <button
-                            onClick={() => deleteMessage(msg.id)}
-                            className="text-gray-300 hover:text-red-400 text-xs px-2 py-1 rounded hover:bg-gray-600 transition"
-                          >
-                            🗑️ Sil
-                          </button>
-                        </div>
-                      )}
-
-                    {/* Emoji picker butonu */}
-                    {hoveredId === msg.id && editingId !== msg.id && (
+                  <div
+                    className={`relative max-w-[85%] md:max-w-md lg:max-w-lg transition-transform ${selectedMessageId === msg.id ? "scale-[1.02] z-30" : ""}`}
+                  >
+                    {/* Seçili Mesaj Emoji Seçici */}
+                    {selectedMessageId === msg.id && editingId !== msg.id && (
                       <div
-                        className={`absolute -top-8 ${msg.user_id === user?.id ? "left-0" : "right-0"} z-10`}
+                        className={`absolute top-1/2 -translate-y-1/2 ${
+                          msg.user_id === user?.id
+                            ? "right-[calc(100%+0.5rem)]"
+                            : "left-[calc(100%+0.5rem)]"
+                        } bg-gray-800 border border-gray-700 rounded-full shadow-2xl z-40 px-3 py-2 flex gap-1 sm:gap-2 animate-in fade-in zoom-in duration-200`}
                       >
-                        <button
-                          onClick={() =>
-                            setEmojiPickerMsgId(
-                              emojiPickerMsgId === msg.id ? null : msg.id,
-                            )
-                          }
-                          className="bg-gray-700 hover:bg-gray-600 text-sm px-2 py-1 rounded-lg shadow-lg transition"
-                        >
-                          😊
-                        </button>
+                        {EMOJIS.map((emoji) => (
+                          <button
+                            key={emoji}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleReaction(msg.id, emoji);
+                              setSelectedMessageId(null);
+                            }}
+                            className="text-lg sm:text-xl hover:bg-gray-700 w-8 h-8 flex items-center justify-center rounded-full transition hover:scale-110 shrink-0"
+                          >
+                            {emoji}
+                          </button>
+                        ))}
                       </div>
-                    )}
-
-                    {/* Emoji picker dropdown */}
-                    {emojiPickerMsgId === msg.id && (
-                      <>
-                        <div
-                          className="fixed inset-0 z-10"
-                          onClick={() => setEmojiPickerMsgId(null)}
-                        />
-                        <div
-                          className={`absolute -top-16 ${msg.user_id === user?.id ? "left-0" : "right-0"} bg-gray-700 rounded-xl shadow-2xl z-20 p-2 flex gap-1`}
-                        >
-                          {EMOJIS.map((emoji) => (
-                            <button
-                              key={emoji}
-                              onClick={() => toggleReaction(msg.id, emoji)}
-                              className="text-xl hover:bg-gray-600 w-9 h-9 flex items-center justify-center rounded-lg transition hover:scale-125"
-                            >
-                              {emoji}
-                            </button>
-                          ))}
-                        </div>
-                      </>
                     )}
 
                     {/* Mesaj balonu */}
@@ -521,38 +612,41 @@ const ChatPage = () => {
                       )}
 
                       {editingId === msg.id ? (
-                        <div className="space-y-2">
-                          <input
-                            type="text"
-                            value={editContent}
-                            onChange={(e) => setEditContent(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") submitEdit(msg.id);
-                              if (e.key === "Escape") cancelEdit();
-                            }}
-                            autoFocus
-                            className="w-full bg-indigo-700 text-white px-2 py-1 rounded text-sm focus:outline-none focus:ring-1 focus:ring-white"
-                          />
-                          <div className="flex gap-2 text-xs">
-                            <button
-                              onClick={() => submitEdit(msg.id)}
-                              className="text-green-300 hover:text-green-100"
-                            >
-                              ✓ Kaydet
-                            </button>
-                            <button
-                              onClick={cancelEdit}
-                              className="text-gray-300 hover:text-white"
-                            >
-                              ✕ İptal
-                            </button>
-                            <span className="text-indigo-300 opacity-60">
-                              ESC ile de iptal
-                            </span>
-                          </div>
-                        </div>
+                        <input
+                          type="text"
+                          value={editContent}
+                          onChange={(e) => setEditContent(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") submitEdit(msg.id);
+                            if (e.key === "Escape") cancelEdit();
+                          }}
+                          onBlur={() => submitEdit(msg.id)}
+                          autoFocus
+                          style={{
+                            width: `${Math.max(editContent.length + 1, 5)}ch`,
+                          }}
+                          className="bg-transparent text-white outline-none border-b border-white/40 p-0 m-0 max-w-full"
+                        />
                       ) : (
-                        <p>{msg.content}</p>
+                        <p
+                          onDoubleClick={(e) => {
+                            e.stopPropagation();
+                            if (msg.user_id === user?.id) {
+                              startEdit(msg);
+                              setSelectedMessageId(null);
+                            }
+                          }}
+                          className={
+                            msg.user_id === user?.id ? "cursor-text" : ""
+                          }
+                          title={
+                            msg.user_id === user?.id
+                              ? "Düzenlemek için çift tıkla"
+                              : ""
+                          }
+                        >
+                          {msg.content}
+                        </p>
                       )}
 
                       <div className="flex items-center justify-end gap-1 mt-1">
@@ -603,19 +697,19 @@ const ChatPage = () => {
               <div ref={messagesEndRef} />
             </div>
 
-            <div className="p-4 border-t border-gray-700 bg-gray-800">
-              <div className="flex gap-3">
+            <div className="p-3 sm:p-4 border-t border-gray-700 bg-gray-800">
+              <div className="flex gap-2 sm:gap-3">
                 <input
                   type="text"
                   value={input}
                   onChange={handleTyping}
                   onKeyDown={handleKeyDown}
                   placeholder={`#${activeRoom.name} odasına mesaj yaz...`}
-                  className="flex-1 bg-gray-700 text-white px-4 py-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="flex-1 bg-gray-700 text-white px-3 py-2 sm:px-4 sm:py-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm sm:text-base"
                 />
                 <button
                   onClick={sendMessage}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-xl transition"
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 sm:px-6 sm:py-3 rounded-xl transition text-sm sm:text-base"
                 >
                   Gönder
                 </button>
@@ -623,17 +717,47 @@ const ChatPage = () => {
             </div>
           </>
         ) : (
-          <div className="flex-1 flex items-center justify-center">
-            <div className="text-center text-gray-500">
-              <p className="text-4xl mb-3">💬</p>
-              <p className="text-xl">Bir oda seç ve sohbete başla!</p>
+          <div className="flex-1 flex flex-col relative">
+            <div className="p-3 border-b border-gray-700 bg-gray-800 md:hidden flex justify-between items-center">
+              <button
+                onClick={() => setIsSidebarOpen(true)}
+                className="text-gray-400 hover:text-white flex items-center gap-2 text-sm bg-gray-700 px-3 py-1.5 rounded-lg"
+              >
+                <Menu size={16} /> Odalar
+              </button>
+              <button
+                onClick={() => setIsOnlineUsersOpen(true)}
+                className="lg:hidden text-gray-400 hover:text-white flex items-center gap-2 text-sm bg-gray-700 px-3 py-1.5 rounded-lg"
+              >
+                <Users size={16} /> Online
+              </button>
+            </div>
+            <div className="flex-1 flex items-center justify-center p-4">
+              <div className="text-center text-gray-500">
+                <p className="text-4xl sm:text-5xl mb-3 sm:mb-4">💬</p>
+                <p className="text-lg sm:text-xl">
+                  Bir oda seç ve sohbete başla!
+                </p>
+              </div>
             </div>
           </div>
         )}
       </div>
 
+      {/* Mobil Online Kullanıcılar Overlay */}
+      {isOnlineUsersOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-30 lg:hidden"
+          onClick={() => setIsOnlineUsersOpen(false)}
+        />
+      )}
+
       {/* Sağ Sidebar — Online Kullanıcılar */}
-      <div className="w-52 bg-gray-800 border-l border-gray-700 p-4">
+      <div
+        className={`fixed inset-y-0 right-0 z-40 w-52 bg-gray-800 border-l border-gray-700 p-4 transform transition-transform duration-300 lg:relative lg:translate-x-0 ${
+          isOnlineUsersOpen ? "translate-x-0" : "translate-x-full"
+        }`}
+      >
         <p className="text-gray-500 text-xs uppercase mb-3">
           Online — {onlineUsers.length}
         </p>
@@ -641,11 +765,23 @@ const ChatPage = () => {
           {onlineUsers.map((u) => (
             <div key={u.id} className="flex items-center gap-2">
               <div className="w-2 h-2 bg-green-400 rounded-full" />
-              <span
-                className={`text-sm ${u.id === user?.id ? "text-indigo-400 font-semibold" : "text-gray-300"}`}
+              <button
+                onClick={() => u.id !== user?.id && openDM(u)}
+                className={`text-sm flex-1 text-left transition ${
+                  u.id === user?.id
+                    ? "text-indigo-400 font-semibold cursor-default"
+                    : "text-gray-300 hover:text-white cursor-pointer"
+                }`}
               >
                 {u.username} {u.id === user?.id && "(sen)"}
-              </span>
+              </button>
+
+              {/* Okunmamış bildirim */}
+              {dmNotifications[u.id] > 0 && (
+                <span className="bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center shrink-0">
+                  {dmNotifications[u.id]}
+                </span>
+              )}
             </div>
           ))}
           {onlineUsers.length === 0 && (
@@ -720,7 +856,18 @@ const ChatPage = () => {
       {editingRoom && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
           <div className="bg-gray-800 rounded-2xl p-6 w-full max-w-md shadow-2xl">
-            <h3 className="text-xl font-bold mb-4">Odayı Düzenle</h3>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-bold">Odayı Düzenle</h3>
+              <button
+                onClick={() => {
+                  setEditingRoom(null);
+                  setEditRoomError("");
+                }}
+                className="text-gray-400 hover:text-white transition"
+              >
+                <X size={24} />
+              </button>
+            </div>
             {editRoomError && (
               <div className="bg-red-500/20 border border-red-500 text-red-400 px-4 py-3 rounded-lg mb-4 text-sm">
                 {editRoomError}
@@ -757,15 +904,13 @@ const ChatPage = () => {
                 />
               </div>
             </div>
-            <div className="flex gap-3 mt-6">
+            <div className="flex gap-2 mt-6">
               <button
-                onClick={() => {
-                  setEditingRoom(null);
-                  setEditRoomError("");
-                }}
-                className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-3 rounded-lg transition"
+                onClick={() => handleDeleteRoom(editingRoom.id)}
+                className="bg-red-600 hover:bg-red-700 text-white px-4 py-3 rounded-lg transition flex items-center justify-center"
+                title="Odayı Sil"
               >
-                İptal
+                <Trash2 size={20} />
               </button>
               <button
                 onClick={handleUpdateRoom}
@@ -789,7 +934,7 @@ const ChatPage = () => {
                 onClick={() => setShowProfile(false)}
                 className="text-gray-400 hover:text-white transition"
               >
-                ✕
+                <X size={24} />
               </button>
             </div>
             <div className="flex justify-center mb-6">
@@ -859,6 +1004,51 @@ const ChatPage = () => {
           </div>
         </div>
       )}
+      {/* Mesaj Silme Onay Modalı */}
+      {messageToDelete && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-800 rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+            <h3 className="text-xl font-bold mb-3 text-white">Mesajı Sil</h3>
+            <p className="text-gray-300 text-sm mb-6">
+              Bu mesajı silmek istediğinize emin misiniz? Bu işlem geri
+              alınamaz.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setMessageToDelete(null)}
+                className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-2.5 rounded-lg transition font-medium text-sm"
+              >
+                İptal
+              </button>
+              <button
+                onClick={() => {
+                  deleteMessage(messageToDelete);
+                  setMessageToDelete(null);
+                  setSelectedMessageId(null);
+                }}
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white py-2.5 rounded-lg transition font-medium text-sm"
+              >
+                Evet, Sil
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* DM Panelleri */}
+      {activeDMs.map((targetUser, index) => (
+        <div
+          key={targetUser.id}
+          style={{ right: `${224 + index * 320 + index * 8}px` }}
+          className="fixed bottom-0 z-30"
+        >
+          <DMPanel
+            currentUser={user}
+            targetUser={targetUser}
+            socket={socket}
+            onClose={() => closeDM(targetUser.id)}
+          />
+        </div>
+      ))}
     </div>
   );
 };
