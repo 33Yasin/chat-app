@@ -67,7 +67,8 @@ const initSocket = (server) => {
                 )
               ) FILTER (WHERE r.emoji IS NOT NULL),
               '[]'
-            ) as reactions
+            ) as reactions,
+            COALESCE(mr.read_count, 0) as read_count
      FROM messages m
      JOIN users u ON m.user_id = u.id
      LEFT JOIN (
@@ -76,15 +77,19 @@ const initSocket = (server) => {
        FROM reactions
        GROUP BY message_id, emoji
      ) r ON r.message_id = m.id
+     LEFT JOIN (
+       SELECT message_id, COUNT(*) as read_count
+       FROM message_reads
+       GROUP BY message_id
+     ) mr ON mr.message_id = m.id
      WHERE m.room_id = $1
-     GROUP BY m.id, u.id, u.username, u.avatar_url
+     GROUP BY m.id, u.id, u.username, u.avatar_url, mr.read_count
      ORDER BY m.created_at ASC
      LIMIT 50`,
         [roomId],
       );
 
       socket.emit("messages:history", messages.rows);
-
       io.to(roomId).emit("room:user_joined", {
         username: user.username,
         roomId,
@@ -95,11 +100,10 @@ const initSocket = (server) => {
     socket.on("message:send", async ({ roomId, content }) => {
       if (!content?.trim()) return;
 
-      // Mesajı veritabanına kaydet
       const result = await pool.query(
         `INSERT INTO messages (content, user_id, room_id)
-         VALUES ($1, $2, $3)
-         RETURNING id, content, created_at`,
+     VALUES ($1, $2, $3)
+     RETURNING id, content, created_at`,
         [content.trim(), socket.userId, roomId],
       );
 
@@ -108,9 +112,10 @@ const initSocket = (server) => {
         user_id: socket.userId,
         username: user.username,
         avatar_url: user.avatar_url,
+        reactions: [],
+        read_count: 0, // ← ekle
       };
 
-      // Odadaki herkese gönder
       io.to(roomId).emit("message:receive", message);
     });
 
@@ -314,6 +319,65 @@ const initSocket = (server) => {
        WHERE receiver_id = $1 AND sender_id = $2 AND is_read = false`,
           [socket.userId, senderId],
         );
+      } catch (error) {
+        console.error("DM okundu hatası:", error.message);
+      }
+    });
+
+    // ─── MESAJ OKUNDU (Genel Chat) ─────────────────────────
+    socket.on("message:read", async ({ messageId, roomId }) => {
+      try {
+        // Kendi mesajını okundu sayma
+        const msgCheck = await pool.query(
+          "SELECT user_id FROM messages WHERE id = $1",
+          [messageId],
+        );
+        if (msgCheck.rows[0]?.user_id === socket.userId) return;
+
+        // Okundu kaydı ekle
+        await pool.query(
+          `INSERT INTO message_reads (message_id, user_id)
+       VALUES ($1, $2)
+       ON CONFLICT (message_id, user_id) DO NOTHING`,
+          [messageId, socket.userId],
+        );
+
+        // Kaç kişi okudu?
+        const readCount = await pool.query(
+          "SELECT COUNT(*) as count FROM message_reads WHERE message_id = $1",
+          [messageId],
+        );
+
+        // Odadaki herkese bildir
+        io.to(roomId).emit("message:read_update", {
+          messageId,
+          readCount: parseInt(readCount.rows[0].count),
+        });
+      } catch (error) {
+        console.error("Mesaj okundu hatası:", error.message);
+      }
+    });
+
+    // ─── DM OKUNDU ─────────────────────────────────────────
+    socket.on("dm:read", async ({ senderId }) => {
+      try {
+        await pool.query(
+          `UPDATE direct_messages 
+       SET is_read = true, read_at = NOW()
+       WHERE receiver_id = $1 AND sender_id = $2 AND is_read = false`,
+          [socket.userId, senderId],
+        );
+
+        // Gönderene okundu bildirimi gönder
+        const senderSocket = [...io.sockets.sockets.values()].find(
+          (s) => s.userId === senderId,
+        );
+
+        if (senderSocket) {
+          senderSocket.emit("dm:read_update", {
+            byUserId: socket.userId,
+          });
+        }
       } catch (error) {
         console.error("DM okundu hatası:", error.message);
       }

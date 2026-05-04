@@ -7,6 +7,7 @@ const DMPanel = ({ currentUser, targetUser, socket, onClose }) => {
   const [typingUser, setTypingUser] = useState("");
   const messagesEndRef = useRef(null);
   const typingTimeout = useRef(null);
+  const [readStatus, setReadStatus] = useState({}); // { messageId: bool }
 
   // Geçmiş mesajları yükle
   useEffect(() => {
@@ -27,7 +28,6 @@ const DMPanel = ({ currentUser, targetUser, socket, onClose }) => {
         (msg.sender_id === currentUser.id && msg.receiver_id === targetUser.id)
       ) {
         setMessages((prev) => {
-          // Duplicate kontrolü
           if (prev.find((m) => m.id === msg.id)) return prev;
           return [...prev, msg];
         });
@@ -35,8 +35,23 @@ const DMPanel = ({ currentUser, targetUser, socket, onClose }) => {
       }
     };
 
+    const handleReadUpdate = ({ byUserId }) => {
+      if (byUserId === targetUser.id) {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.sender_id === currentUser.id ? { ...m, is_read: true } : m,
+          ),
+        );
+      }
+    };
+
     socket.on("dm:receive", handleReceive);
-    return () => socket.off("dm:receive", handleReceive);
+    socket.on("dm:read_update", handleReadUpdate);
+
+    return () => {
+      socket.off("dm:receive", handleReceive);
+      socket.off("dm:read_update", handleReadUpdate); // ✅ BURAYA
+    };
   }, [socket, targetUser.id, currentUser.id]);
 
   // Otomatik scroll
@@ -109,12 +124,24 @@ const DMPanel = ({ currentUser, targetUser, socket, onClose }) => {
               }`}
             >
               <p>{msg.content}</p>
-              <p className="text-xs opacity-60 mt-1 text-right">
-                {new Date(msg.created_at).toLocaleTimeString("tr-TR", {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-              </p>
+              <div className="flex items-center justify-end gap-1 mt-1">
+                <p className="text-xs opacity-60">
+                  {new Date(msg.created_at).toLocaleTimeString("tr-TR", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </p>
+                {/* Okundu tiki — sadece gönderilen mesajlarda */}
+                {msg.sender_id === currentUser.id && (
+                  <span className="text-xs">
+                    {msg.is_read ? (
+                      <span className="text-blue-300">✓✓</span>
+                    ) : (
+                      <span className="opacity-60">✓</span>
+                    )}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         ))}

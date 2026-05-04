@@ -157,6 +157,13 @@ const ChatPage = () => {
         [senderId]: (prev[senderId] || 0) + 1,
       }));
     });
+    socket.on("message:read_update", ({ messageId, readCount }) => {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === messageId ? { ...m, read_count: readCount } : m,
+        ),
+      );
+    });
 
     return () => {
       socket.off("messages:history");
@@ -170,12 +177,29 @@ const ChatPage = () => {
       socket.off("room:updated");
       socket.off("reaction:updated");
       socket.off("dm:notification");
+      socket.off("message:read_update");
     };
   }, [socket]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // Mesajlar yüklendiğinde okundu event'i gönder
+  useEffect(() => {
+    if (!socket || !activeRoom || messages.length === 0) return;
+
+    // Son 10 mesajı okundu olarak işaretle
+    const recentMessages = messages.slice(-10);
+    recentMessages.forEach((msg) => {
+      if (msg.user_id !== user?.id) {
+        socket.emit("message:read", {
+          messageId: msg.id,
+          roomId: activeRoom.id,
+        });
+      }
+    });
+  }, [messages, activeRoom, socket]);
 
   const joinRoom = (room) => {
     if (activeRoom?.id === room.id) return;
@@ -658,9 +682,24 @@ const ChatPage = () => {
                         <p className="text-xs opacity-60">
                           {new Date(msg.created_at).toLocaleTimeString(
                             "tr-TR",
-                            { hour: "2-digit", minute: "2-digit" },
+                            {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            },
                           )}
                         </p>
+                        {/* Okundu bilgisi — sadece kendi mesajında */}
+                        {msg.user_id === user?.id && (
+                          <span className="text-xs opacity-60">
+                            {msg.read_count > 0 ? (
+                              <span className="text-blue-400">
+                                ✓✓ {msg.read_count}
+                              </span>
+                            ) : (
+                              <span className="text-gray-400">✓</span>
+                            )}
+                          </span>
+                        )}
                       </div>
                     </div>
 
