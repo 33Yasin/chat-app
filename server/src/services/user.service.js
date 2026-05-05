@@ -38,3 +38,16 @@ export const updateUserProfile = async ({ userId, username }) => {
 
   return result.rows[0];
 };
+
+export const deleteUserProfile = async (userId) => {
+  const result = await pool.query(
+    "DELETE FROM users WHERE id = $1 RETURNING id",
+    [userId]
+  );
+
+  if (result.rows.length === 0) {
+    throw { status: 404, message: "Kullanıcı bulunamadı." };
+  }
+
+  return result.rows[0];
+};

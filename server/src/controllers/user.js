@@ -24,3 +24,14 @@ export const updateProfile = async (req, res) => {
       .json({ message: error.message || "Sunucu hatası." });
   }
 };
+
+export const deleteProfile = async (req, res) => {
+  try {
+    await userService.deleteUserProfile(req.userId);
+    res.json({ message: "Hesap başarıyla silindi." });
+  } catch (error) {
+    res
+      .status(error.status || 500)
+      .json({ message: error.message || "Sunucu hatası." });
+  }
+};

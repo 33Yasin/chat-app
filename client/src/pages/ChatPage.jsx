@@ -54,6 +54,8 @@ const ChatPage = () => {
   const [profileError, setProfileError] = useState("");
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileSuccess, setProfileSuccess] = useState("");
+  const [showDeleteProfileModal, setShowDeleteProfileModal] = useState(false);
+  const [deleteProfileLoading, setDeleteProfileLoading] = useState(false);
 
   // emoji picker
   const [emojiPickerMsgId, setEmojiPickerMsgId] = useState(null);
@@ -328,6 +330,21 @@ const ChatPage = () => {
       setProfileError(err.response?.data?.message || "Bir hata oluştu.");
     } finally {
       setProfileLoading(false);
+    }
+  };
+
+  const handleDeleteProfile = async () => {
+    setProfileError("");
+    setDeleteProfileLoading(true);
+    try {
+      await api.delete("/users/profile");
+      setShowDeleteProfileModal(false);
+      setShowProfile(false);
+      logout();
+    } catch (err) {
+      setProfileError(err.response?.data?.message || "Bir hata oluştu.");
+    } finally {
+      setDeleteProfileLoading(false);
     }
   };
 
@@ -1023,7 +1040,15 @@ const ChatPage = () => {
                 {profileSuccess}
               </div>
             )}
-            <div className="flex gap-3 mt-6">
+            <div className="mt-6 pt-4 border-t border-gray-700">
+              <button
+                onClick={() => setShowDeleteProfileModal(true)}
+                className="w-full bg-red-600/10 text-red-500 hover:bg-red-600 hover:text-white py-3 rounded-lg transition text-sm font-medium border border-red-500/20 hover:border-red-600"
+              >
+                Hesabımı Sil
+              </button>
+            </div>
+            <div className="flex gap-3 mt-4">
               <button
                 onClick={() => setShowProfile(false)}
                 className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-3 rounded-lg transition"
@@ -1038,6 +1063,33 @@ const ChatPage = () => {
                 className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-lg transition disabled:opacity-50"
               >
                 {profileLoading ? "Kaydediliyor..." : "Kaydet"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Hesap Silme Onay Modalı */}
+      {showDeleteProfileModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[60] p-4">
+          <div className="bg-gray-800 rounded-2xl p-6 w-full max-w-sm shadow-2xl border border-red-500/20">
+            <h3 className="text-xl font-bold mb-3 text-red-400">Hesabı Sil</h3>
+            <p className="text-gray-300 text-sm mb-6">
+              Hesabınızı silmek istediğinize emin misiniz? Tüm mesajlarınız ve odalarınız kalıcı olarak silinecektir. Bu işlem geri alınamaz.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowDeleteProfileModal(false)}
+                className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-2.5 rounded-lg transition font-medium text-sm"
+              >
+                İptal
+              </button>
+              <button
+                onClick={handleDeleteProfile}
+                disabled={deleteProfileLoading}
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white py-2.5 rounded-lg transition font-medium text-sm disabled:opacity-50"
+              >
+                {deleteProfileLoading ? "Siliniyor..." : "Evet, Hesabımı Sil"}
               </button>
             </div>
           </div>
