@@ -1,6 +1,15 @@
 # ChatApp - Real-Time Chat Application
 
+<img width="1910" height="906" alt="chat-app-img" src="https://github.com/user-attachments/assets/bcfdd2a3-e408-462a-9b82-f0b8907d11c8" />
+
+
 A full-stack, real-time chat application built with the **PERN stack** (PostgreSQL, Express, React, Node.js) and **Socket.io**.
+
+
+
+https://github.com/user-attachments/assets/0390e34a-eccd-41ab-b575-e57571b7622f
+
+
 
 ## ✨ Features
 
